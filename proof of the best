@@ -44,5 +44,603 @@ From repo root:
 ```bash
 python scripts/make_evidence_bundle.py
 	
-	
+	Got you. Here’s a complete, drop-in “Proof-of-Work Evidence Kit” you can run locally to:
+
+✅ generate an evidence/ bundle
+✅ export Git provenance (log/stat/tags/refs)
+✅ produce a tamper-evident ZIP
+✅ compute SHA-256 + create a manifest
+✅ verify the bundle later (or by counsel/investors)
+
+You’ll get three scripts:
+	•	setup_evidence_kit.py — scaffolds everything + templates
+	•	make_evidence_bundle.py — builds the signed/hashed artifact
+	•	verify_evidence_bundle.py — verifies integrity later
+
+⸻
+
+1) Create the scripts
+
+setup_evidence_kit.py
+
+#!/usr/bin/env python3
+"""
+Scaffold a forensic-friendly evidence kit folder structure and templates.
+
+Usage:
+  python setup_evidence_kit.py
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from datetime import datetime, timezone
+
+ROOT = Path.cwd()
+EVIDENCE_DIR = ROOT / "evidence"
+SCRIPTS_DIR = ROOT / "scripts"
+
+DIRS = [
+    EVIDENCE_DIR,
+    EVIDENCE_DIR / "architecture",
+    EVIDENCE_DIR / "benchmarks",
+    EVIDENCE_DIR / "demos",
+    EVIDENCE_DIR / "git",
+    EVIDENCE_DIR / "legal",
+    EVIDENCE_DIR / "third_party",
+    EVIDENCE_DIR / "notes",
+    EVIDENCE_DIR / "outputs",
+    SCRIPTS_DIR,
+]
+
+README_EVIDENCE = """# Evidence Bundle (Proof-of-Work)
+
+This directory contains a reproducible, cryptographically verifiable evidence bundle
+showing authorship and evolution of this project over time.
+
+## What this is
+- A structured set of artifacts (docs, logs, recordings, outputs)
+- Git provenance exports (commit history, tags, refs)
+- A ZIP bundle with SHA-256 hash + manifest file
+
+## How to create the bundle
+From repo root:
+```bash
+python scripts/make_evidence_bundle.py
+
+How to verify the bundle later
+
+python scripts/verify_evidence_bundle.py artifacts/<BUNDLE_NAME>.zip artifacts/<BUNDLE_NAME>.manifest.json
+
+Recommended anchoring
+
+After creating the bundle:
+	1.	Copy the .sha256 value somewhere external (lawyer email, trusted contact, public gist, etc.)
+	2.	Store the ZIP + manifest on read-only / WORM storage if possible (S3 Object Lock, immutable drive, etc.)
+“””
+
+TIMELINE = “””# Timeline
+
+Add milestone events with dates and references to commits/tags.
+
+Example:
+	•	2025-10-05 — Implemented edge gating prototype (tag: v0.1.0) — commit: 
+	•	2025-11-12 — Added planogram schema validation — commit: 
+	•	2026-01-09 — Benchmarked payload reduction — evidence/benchmarks/… + commit: 
+“””
+
+ARCH_NOTES = “””# Architecture Notes
+
+Put key diagrams / ADRs (Architecture Decision Records) here.
+
+Recommended:
+	•	ADR-0001-edge-validation.md
+	•	ADR-0002-planogram-schema.md
+	•	Rust Gate diagram.png / .svg
+“””
+
+BUILD_MD = “””# Build & Repro Steps
+
+Document exact steps to build/run and reproduce outputs.
+
+Include:
+	•	OS + versions
+	•	Language versions
+	•	Dependency install commands
+	•	Commands to run tests
+	•	Commands to run demo reproduction
+	•	Expected output filenames + checksums
+“””
+
+PROVENANCE_STATEMENT = “””# Provenance Statement
+
+I, <YOUR_NAME>, affirm that:
+	•	I authored and developed this project and its contents.
+	•	The accompanying Git history, evidence artifacts, and generated bundle were created from my working repository.
+	•	The included manifest and SHA-256 checksums can be used to verify integrity.
+
+Signature: _______________________
+Date (UTC): _______________________
+“””
+
+DEPENDENCIES_TEMPLATE = “””# Third-Party Dependencies
+
+List dependencies and license info. Suggested commands:
+	•	Python: pip freeze
+	•	Node: npm ls --all
+	•	Rust: cargo tree
+	•	System: OS + build tools
+
+Record outputs here or as separate files.
+“””
+
+def safe_write(path: Path, content: str) -> None:
+path.parent.mkdir(parents=True, exist_ok=True)
+if path.exists():
+return
+path.write_text(content, encoding=“utf-8”)
+
+def main() -> None:
+for d in DIRS:
+d.mkdir(parents=True, exist_ok=True)
+
+safe_write(EVIDENCE_DIR / "README_EVIDENCE.md", README_EVIDENCE)
+safe_write(EVIDENCE_DIR / "timeline.md", TIMELINE)
+safe_write(EVIDENCE_DIR / "architecture" / "README.md", ARCH_NOTES)
+safe_write(EVIDENCE_DIR / "BUILD.md", BUILD_MD)
+safe_write(EVIDENCE_DIR / "legal" / "PROVENANCE_STATEMENT.md", PROVENANCE_STATEMENT)
+safe_write(EVIDENCE_DIR / "third_party" / "DEPENDENCIES.md", DEPENDENCIES_TEMPLATE)
+
+stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+safe_write(EVIDENCE_DIR / "notes" / f"creation_{stamp}.txt",
+           f"Evidence kit scaffold created at {stamp} UTC on machine: {os.uname().nodename if hasattr(os, 'uname') else 'unknown'}\n")
+
+print("✅ Evidence kit scaffold created:")
+print(f"   - {EVIDENCE_DIR}")
+print(f"   - {SCRIPTS_DIR}")
+print("\nNext:")
+print("  1) Add artifacts into evidence/*")
+print("  2) Run: python scripts/make_evidence_bundle.py")
+
+if name == “main”:
+main()
+
+---
+
+### `make_evidence_bundle.py`
+```python
+#!/usr/bin/env python3
+"""
+Create a forensic-grade evidence bundle:
+- exports Git provenance
+- builds a ZIP (evidence + git exports + selected repo metadata)
+- creates a manifest JSON with per-file sha256
+- computes sha256 of the ZIP itself
+- writes artifacts/* outputs
+
+Usage:
+  python scripts/make_evidence_bundle.py
+Optional:
+  python scripts/make_evidence_bundle.py --name shelfcat_pow --include-repo-snapshot 0
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import shutil
+import subprocess
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Tuple
+import zipfile
+
+ROOT = Path.cwd()
+EVIDENCE_DIR = ROOT / "evidence"
+ARTIFACTS_DIR = ROOT / "artifacts"
+SCRIPTS_DIR = ROOT / "scripts"
+
+GIT_EXPORT_DIR = EVIDENCE_DIR / "git"
+
+DEFAULT_EXCLUDES = {
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".venv",
+    "venv",
+    "artifacts",
+}
+
+@dataclass
+class RunInfo:
+    created_utc: str
+    machine: str
+    os: str
+    python: str
+    git_version: str
+    repo_root: str
+    head_commit: str
+    head_branch: str
+
+def run(cmd: List[str], cwd: Path | None = None) -> Tuple[int, str, str]:
+    p = subprocess.Popen(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    out, err = p.communicate()
+    return p.returncode, out, err
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+def ensure_dirs() -> None:
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    GIT_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+def require_git() -> None:
+    code, out, _ = run(["git", "--version"])
+    if code != 0:
+        raise SystemExit("❌ git not found. Install Git and retry.")
+    return
+
+def get_git_meta() -> Tuple[str, str]:
+    code, head, _ = run(["git", "rev-parse", "HEAD"])
+    if code != 0:
+        raise SystemExit("❌ Not a git repo (cannot read HEAD). Run in your repo root.")
+    head = head.strip()
+
+    code, branch, _ = run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+    branch = branch.strip() if code == 0 else "unknown"
+    return head, branch
+
+def export_git_provenance() -> Dict[str, str]:
+    """
+    Writes multiple git outputs into evidence/git/.
+    Returns dict of exported filenames -> sha256.
+    """
+    exports: Dict[str, str] = {}
+
+    tasks = [
+        (["git", "status", "--porcelain=v1"], "status_porcelain.txt"),
+        (["git", "log", "--date=iso-strict", "--stat"], "log_stat.txt"),
+        (["git", "log", "--date=iso-strict", "--pretty=fuller"], "log_fuller.txt"),
+        (["git", "show", "--summary"], "show_head_summary.txt"),
+        (["git", "branch", "-vv"], "branches_vv.txt"),
+        (["git", "tag", "-n99"], "tags.txt"),
+        (["git", "remote", "-v"], "remotes.txt"),
+        (["git", "rev-list", "--all", "--count"], "commit_count.txt"),
+        (["git", "shortlog", "-sne"], "shortlog_sne.txt"),
+        (["git", "diff"], "diff_worktree.txt"),
+        (["git", "diff", "--cached"], "diff_index.txt"),
+        (["git", "ls-tree", "-r", "HEAD", "--name-only"], "tree_head_files.txt"),
+    ]
+
+    for cmd, filename in tasks:
+        code, out, err = run(cmd)
+        path = GIT_EXPORT_DIR / filename
+        path.write_text(out + ("\n" + err if err else ""), encoding="utf-8")
+        exports[str(path.relative_to(ROOT))] = sha256_file(path)
+
+    # Export git bundle (portable repo history). This is VERY strong evidence.
+    bundle_path = GIT_EXPORT_DIR / "repo_history.bundle"
+    code, _, err = run(["git", "bundle", "create", str(bundle_path), "--all"])
+    if code == 0 and bundle_path.exists():
+        exports[str(bundle_path.relative_to(ROOT))] = sha256_file(bundle_path)
+    else:
+        # Not fatal, but record why
+        (GIT_EXPORT_DIR / "bundle_error.txt").write_text(err, encoding="utf-8")
+
+    return exports
+
+def should_exclude(path: Path, excludes: set[str]) -> bool:
+    parts = set(path.parts)
+    return any(x in parts for x in excludes)
+
+def add_dir_to_zip(z: zipfile.ZipFile, base_dir: Path, arc_prefix: str, excludes: set[str]) -> List[str]:
+    added: List[str] = []
+    for p in base_dir.rglob("*"):
+        if p.is_dir():
+            continue
+        if should_exclude(p, excludes):
+            continue
+        rel = p.relative_to(base_dir)
+        arcname = str(Path(arc_prefix) / rel)
+        z.write(p, arcname=arcname)
+        added.append(arcname)
+    return added
+
+def create_repo_snapshot(tmp_dir: Path, excludes: set[str]) -> None:
+    """
+    Copies a *minimal* snapshot of the repo (excluding heavy folders).
+    This makes it easier to verify the code state independent of git.
+    """
+    snapshot = tmp_dir / "repo_snapshot"
+    snapshot.mkdir(parents=True, exist_ok=True)
+
+    for item in ROOT.iterdir():
+        if item.name in excludes:
+            continue
+        if item.name == "evidence" or item.name == "artifacts":
+            continue
+        dest = snapshot / item.name
+        if item.is_dir():
+            shutil.copytree(item, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*excludes))
+        else:
+            shutil.copy2(item, dest)
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--name", default="proof_of_work", help="Bundle base name (no spaces recommended)")
+    parser.add_argument("--include-repo-snapshot", type=int, default=1, help="1=include minimal repo snapshot, 0=skip")
+    args = parser.parse_args()
+
+    if not EVIDENCE_DIR.exists():
+        raise SystemExit("❌ evidence/ not found. Run: python setup_evidence_kit.py first.")
+
+    ensure_dirs()
+    require_git()
+
+    created_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    head, branch = get_git_meta()
+    code, git_ver, _ = run(["git", "--version"])
+    git_ver = git_ver.strip() if code == 0 else "unknown"
+
+    info = RunInfo(
+        created_utc=created_utc,
+        machine=platform.node(),
+        os=f"{platform.system()} {platform.release()} ({platform.version()})",
+        python=platform.python_version(),
+        git_version=git_ver,
+        repo_root=str(ROOT),
+        head_commit=head,
+        head_branch=branch,
+    )
+
+    print("🧾 Exporting Git provenance…")
+    git_exports = export_git_provenance()
+
+    # Record environment facts (helps later to show reproducibility context)
+    env_path = EVIDENCE_DIR / "notes" / f"runinfo_{created_utc}.json"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text(json.dumps(info.__dict__, indent=2), encoding="utf-8")
+    git_exports[str(env_path.relative_to(ROOT))] = sha256_file(env_path)
+
+    # Build zip
+    bundle_base = f"{args.name}_{created_utc.replace(':','').replace('-','')}"
+    zip_path = ARTIFACTS_DIR / f"{bundle_base}.zip"
+    manifest_path = ARTIFACTS_DIR / f"{bundle_base}.manifest.json"
+    sha_path = ARTIFACTS_DIR / f"{bundle_base}.sha256.txt"
+
+    print(f"📦 Creating ZIP: {zip_path.name}")
+    excludes = set(DEFAULT_EXCLUDES)
+
+    file_hashes: Dict[str, str] = {}
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        # Add evidence folder
+        added = add_dir_to_zip(z, EVIDENCE_DIR, "evidence", excludes=set())  # do not exclude inside evidence/
+        for arcname in added:
+            real_path = EVIDENCE_DIR / Path(arcname).relative_to("evidence")
+            file_hashes[arcname] = sha256_file(real_path)
+
+        # Optionally add a minimal repo snapshot
+        if args.include_repo_snapshot == 1:
+            tmp_dir = ARTIFACTS_DIR / f".tmp_{bundle_base}"
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+
+            print("🧊 Creating minimal repo snapshot (excluding heavy folders)…")
+            create_repo_snapshot(tmp_dir, excludes=excludes)
+
+            snap_dir = tmp_dir / "repo_snapshot"
+            added2 = add_dir_to_zip(z, snap_dir, "repo_snapshot", excludes=set())
+            for arcname in added2:
+                real_path = snap_dir / Path(arcname).relative_to("repo_snapshot")
+                file_hashes[arcname] = sha256_file(real_path)
+
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        # Add a top-level metadata file into the ZIP too
+        meta = {
+            "created_utc": created_utc,
+            "head_commit": head,
+            "head_branch": branch,
+            "git_version": git_ver,
+            "machine": info.machine,
+            "os": info.os,
+            "python": info.python,
+            "notes": "ZIP contains evidence/ plus optional repo_snapshot/. Integrity verified via manifest + zip sha256.",
+        }
+        meta_bytes = (json.dumps(meta, indent=2) + "\n").encode("utf-8")
+        z.writestr("BUNDLE_METADATA.json", meta_bytes)
+        file_hashes["BUNDLE_METADATA.json"] = sha256_bytes(meta_bytes)
+
+    # Compute ZIP hash
+    zip_sha = sha256_file(zip_path)
+    sha_path.write_text(f"{zip_sha}  {zip_path.name}\n", encoding="utf-8")
+
+    # Write manifest
+    manifest = {
+        "bundle_name": zip_path.name,
+        "bundle_sha256": zip_sha,
+        "created_utc": created_utc,
+        "git": {
+            "head_commit": head,
+            "head_branch": branch,
+            "git_version": git_ver,
+        },
+        "file_hashes_sha256": file_hashes,
+        "verification": {
+            "how_to_verify": "Run: python scripts/verify_evidence_bundle.py <zip> <manifest>",
+        },
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    print("\n✅ Done.")
+    print(f"   ZIP:      {zip_path}")
+    print(f"   MANIFEST: {manifest_path}")
+    print(f"   SHA256:   {sha_path}")
+    print("\n🔥 Next step (anchoring):")
+    print("   Copy the SHA-256 value in the .sha256.txt file into an external timestamped place (email, lawyer, gist).")
+
+if __name__ == "__main__":
+    main()
+
+
+⸻
+
+verify_evidence_bundle.py
+
+#!/usr/bin/env python3
+"""
+Verify an evidence bundle against its manifest:
+- checks ZIP sha256 matches manifest
+- checks every file inside ZIP matches per-file sha256 in manifest
+
+Usage:
+  python scripts/verify_evidence_bundle.py artifacts/<bundle>.zip artifacts/<bundle>.manifest.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import zipfile
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("zip_path", type=str)
+    parser.add_argument("manifest_path", type=str)
+    args = parser.parse_args()
+
+    zip_path = Path(args.zip_path)
+    manifest_path = Path(args.manifest_path)
+
+    if not zip_path.exists():
+        raise SystemExit(f"❌ ZIP not found: {zip_path}")
+    if not manifest_path.exists():
+        raise SystemExit(f"❌ Manifest not found: {manifest_path}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected_zip_sha = manifest.get("bundle_sha256")
+    if not expected_zip_sha:
+        raise SystemExit("❌ Manifest missing bundle_sha256")
+
+    actual_zip_sha = sha256_file(zip_path)
+    if actual_zip_sha != expected_zip_sha:
+        raise SystemExit(
+            "❌ ZIP hash mismatch!\n"
+            f"   expected: {expected_zip_sha}\n"
+            f"   actual:   {actual_zip_sha}"
+        )
+
+    expected_files = manifest.get("file_hashes_sha256", {})
+    if not isinstance(expected_files, dict) or not expected_files:
+        raise SystemExit("❌ Manifest missing file_hashes_sha256")
+
+    print("✅ ZIP hash verified.")
+    print("🔍 Verifying files inside ZIP…")
+
+    failures = 0
+    with zipfile.ZipFile(zip_path, "r") as z:
+        names = set(z.namelist())
+
+        # Check for missing or extra files (extra is not necessarily fatal, but report it)
+        expected_names = set(expected_files.keys())
+        missing = expected_names - names
+        extra = names - expected_names
+
+        if missing:
+            print("❌ Missing files listed in manifest:")
+            for m in sorted(missing):
+                print(f"   - {m}")
+            failures += len(missing)
+
+        if extra:
+            print("⚠️ Extra files in ZIP not listed in manifest:")
+            for e in sorted(extra):
+                print(f"   - {e}")
+
+        # Verify expected files
+        for name, expected_sha in expected_files.items():
+            if name not in names:
+                continue
+            data = z.read(name)
+            actual_sha = sha256_bytes(data)
+            if actual_sha != expected_sha:
+                print("❌ File hash mismatch:", name)
+                print("   expected:", expected_sha)
+                print("   actual:  ", actual_sha)
+                failures += 1
+
+    if failures:
+        raise SystemExit(f"\n❌ Verification FAILED with {failures} issue(s).")
+    print("\n✅ Verification PASSED. Bundle is intact and matches manifest.")
+
+if __name__ == "__main__":
+    main()
+
+
+⸻
+
+2) Run it (commands)
+
+From your repo root:
+
+python setup_evidence_kit.py
+python scripts/make_evidence_bundle.py --name shelfcat_pow --include-repo-snapshot 1
+
+Then verify immediately:
+
+python scripts/verify_evidence_bundle.py artifacts/<your_bundle>.zip artifacts/<your_bundle>.manifest.json
+
+
+⸻
+
+3) What to do with the SHA-256 (locking it down)
+
+Open the generated file in artifacts/*.sha256.txt and copy that hash into something timestamped outside your control, like:
+	•	email to yourself + a second mailbox + lawyer
+	•	a public GitHub gist (hash only, no code)
+	•	a signed note stored with counsel
+
+That creates proof-of-existence on a specific date ✅
+
+⸻
+
+If you want, paste your repo tree (or just your tech stack: Rust/Python/Node) and I’ll add repro scripts (Dockerfile + “golden output” checksums) so the bundle proves not only history, but functional capability too. 🔥
+
+
 	
