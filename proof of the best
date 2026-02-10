@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+"""
+Scaffold a forensic-friendly evidence kit folder structure and templates.
+
+Usage:
+  python setup_evidence_kit.py
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from datetime import datetime, timezone
+
+ROOT = Path.cwd()
+EVIDENCE_DIR = ROOT / "evidence"
+SCRIPTS_DIR = ROOT / "scripts"
+
+DIRS = [
+    EVIDENCE_DIR,
+    EVIDENCE_DIR / "architecture",
+    EVIDENCE_DIR / "benchmarks",
+    EVIDENCE_DIR / "demos",
+    EVIDENCE_DIR / "git",
+    EVIDENCE_DIR / "legal",
+    EVIDENCE_DIR / "third_party",
+    EVIDENCE_DIR / "notes",
+    EVIDENCE_DIR / "outputs",
+    SCRIPTS_DIR,
+]
+
+README_EVIDENCE = """# Evidence Bundle (Proof-of-Work)
+
+This directory contains a reproducible, cryptographically verifiable evidence bundle
+showing authorship and evolution of this project over time.
+
+## What this is
+- A structured set of artifacts (docs, logs, recordings, outputs)
+- Git provenance exports (commit history, tags, refs)
+- A ZIP bundle with SHA-256 hash + manifest file
+
+## How to create the bundle
+From repo root:
+```bash
+python scripts/make_evidence_bundle.py
+	
+	
+	
