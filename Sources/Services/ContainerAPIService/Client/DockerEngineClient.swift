@@ -50,6 +50,12 @@ public struct DockerEngineClient {
     /// Default Docker socket path
     public static let defaultSocketPath = "/var/run/docker.sock"
     
+    /// Maximum attempts to read response data before timing out
+    private static let responseTimeoutAttempts = 10
+    
+    /// Delay between response read attempts in milliseconds
+    private static let responseReadDelayMs: UInt64 = 50
+    
     /// Initialize a Docker Engine client
     /// - Parameters:
     ///   - socketPath: Path to the Docker daemon socket (defaults to /var/run/docker.sock)
@@ -134,15 +140,14 @@ public struct DockerEngineClient {
             // A production implementation should use proper HTTP response parsing
             var responseData = Data()
             var attempts = 0
-            let maxAttempts = 10
             
-            while attempts < maxAttempts {
+            while attempts < Self.responseTimeoutAttempts {
                 do {
                     if let data = try channel.readInbound(as: ByteBuffer.self) {
                         responseData.append(contentsOf: data.readableBytesView)
                     } else {
                         // No more data available
-                        try? await Task.sleep(for: .milliseconds(50))
+                        try? await Task.sleep(for: .milliseconds(Self.responseReadDelayMs))
                         attempts += 1
                     }
                 } catch {
