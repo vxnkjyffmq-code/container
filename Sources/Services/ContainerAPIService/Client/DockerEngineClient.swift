@@ -87,30 +87,73 @@ public struct DockerEngineClient {
         
         let bootstrap = ClientBootstrap(group: eventLoopGroup)
         
-        let channel = try await bootstrap.connect(unixDomainSocketPath: socketPath).get()
-        defer {
-            try? channel.close().wait()
+        do {
+            let channel = try await bootstrap.connect(unixDomainSocketPath: socketPath).get()
+            defer {
+                try? channel.close().wait()
+            }
+            
+            // Build HTTP request
+            let request = """
+            \(method) \(path) HTTP/1.1\r
+            Host: localhost\r
+            Accept: application/json\r
+            Connection: close\r
+            \r
+            
+            """
+            
+            var buffer = channel.allocator.buffer(capacity: request.utf8.count)
+            buffer.writeString(request)
+            try await channel.writeAndFlush(buffer).get()
+            
+            logger.debug("Request sent, awaiting response")
+            
+            // Read response with timeout
+            // Note: This is a simplified implementation that reads until connection close
+            // A production implementation should use proper HTTP response parsing
+            var responseData = Data()
+            var attempts = 0
+            let maxAttempts = 10
+            
+            while attempts < maxAttempts {
+                do {
+                    if let data = try channel.readInbound(as: ByteBuffer.self) {
+                        responseData.append(contentsOf: data.readableBytesView)
+                    } else {
+                        // No more data available
+                        try? await Task.sleep(for: .milliseconds(50))
+                        attempts += 1
+                    }
+                } catch {
+                    break
+                }
+            }
+            
+            // Parse HTTP response to extract body
+            guard let responseString = String(data: responseData, encoding: .utf8) else {
+                throw DockerEngineError.invalidResponse
+            }
+            
+            // Simple HTTP response parsing - split headers and body
+            let parts = responseString.components(separatedBy: "\r\n\r\n")
+            guard parts.count >= 2 else {
+                // If we can't parse properly, check if we at least got JSON
+                if responseString.contains("{") {
+                    if let jsonStart = responseString.firstIndex(of: "{"),
+                       let jsonEnd = responseString.lastIndex(of: "}") {
+                        return String(responseString[jsonStart...jsonEnd])
+                    }
+                }
+                throw DockerEngineError.invalidResponse
+            }
+            
+            return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            
+        } catch {
+            logger.error("Failed to make request to Docker daemon: \(error)")
+            throw DockerEngineError.connectionFailed(String(describing: error))
         }
-        
-        // Build HTTP request
-        let request = """
-        \(method) \(path) HTTP/1.1\r
-        Host: localhost\r
-        Accept: application/json\r
-        \r
-        
-        """
-        
-        var buffer = channel.allocator.buffer(capacity: request.utf8.count)
-        buffer.writeString(request)
-        try await channel.writeAndFlush(buffer).get()
-        
-        // Read response (simplified - doesn't handle chunked encoding)
-        logger.debug("Request sent, awaiting response")
-        
-        // For simplicity, return a mock response for now
-        // A full implementation would need proper HTTP parsing
-        return #"{"Version": "1.0.0"}"#
     }
 }
 
