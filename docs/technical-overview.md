@@ -48,6 +48,10 @@ When `container-apiserver` starts, it launches an XPC helper `container-core-ima
 
 ![diagram showing `container` functional organization](/docs/assets/functional-model-light.svg)
 
+## Docker Engine Connectivity
+
+The `container` tool includes a `DockerEngineClient` that enables connectivity with Docker Engine daemons. This client can connect to Docker daemons via Unix sockets (typically `/var/run/docker.sock`) to retrieve version information and verify connectivity. This feature facilitates interoperability scenarios where you need to interact with both the `container` tool and Docker Engine on the same system.
+
 ## What limitations does `container` have today?
 
 With the initial release of `container`, you get basic facilities for building and running containers, but many common containerization features remain to be implemented. Consider [contributing](../CONTRIBUTING.md) new features and bug fixes to `container` and the Containerization projects!
