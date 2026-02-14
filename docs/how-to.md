@@ -514,6 +514,40 @@ The `container system logs` command allows you to look at the log messages that 
 %
 </pre>
 
+## Connect to Docker Engine
+
+The `container` tool includes a `DockerEngineClient` API that can connect to Docker Engine daemons running on the same system. This enables interoperability scenarios where you need to interact with both `container` and Docker.
+
+### Using DockerEngineClient in Swift
+
+If you're building applications or tools using the `container` Swift package, you can use the `DockerEngineClient` to connect to a Docker daemon:
+
+```swift
+import ContainerAPIClient
+import Logging
+
+let logger = Logger(label: "my-app")
+let client = DockerEngineClient(socketPath: "/var/run/docker.sock", logger: logger)
+
+do {
+    let connected = try await client.connect()
+    if connected {
+        let version = try await client.getVersion()
+        print("Connected to Docker Engine version: \(version)")
+    }
+} catch {
+    print("Failed to connect to Docker Engine: \(error)")
+}
+```
+
+### Socket Path Configuration
+
+By default, `DockerEngineClient` connects to `/var/run/docker.sock`, which is the standard Docker daemon socket path on Unix systems. If your Docker daemon uses a different socket path, you can specify it when creating the client:
+
+```swift
+let client = DockerEngineClient(socketPath: "/custom/path/docker.sock")
+```
+
 ## Generating and installing completion scripts
 
 ### Overview
