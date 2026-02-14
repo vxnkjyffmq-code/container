@@ -20,6 +20,26 @@ import NIOPosix
 import Logging
 
 /// A client for connecting to and communicating with a Docker Engine daemon via Unix socket.
+///
+/// This is a minimal implementation suitable for basic connectivity checking and version retrieval.
+///
+/// ## Limitations
+///
+/// - HTTP response parsing is simplified and may not handle all edge cases
+/// - Does not support chunked transfer encoding
+/// - Uses polling-based response reading which may add latency
+/// - Not suitable for high-frequency or production use without enhancements
+///
+/// ## Usage
+///
+/// ```swift
+/// let client = DockerEngineClient()
+/// let connected = try await client.connect()
+/// let version = try await client.getVersion()
+/// ```
+///
+/// For production use, consider using a full-featured HTTP client library or enhancing
+/// this implementation with proper NIO-based async response handling.
 public struct DockerEngineClient {
     /// The path to the Docker daemon socket
     public let socketPath: String

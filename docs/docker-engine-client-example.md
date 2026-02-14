@@ -6,6 +6,12 @@ This example demonstrates how to use the `DockerEngineClient` to connect to a Do
 
 The `DockerEngineClient` provides a simple way to connect to Docker Engine daemons via Unix sockets. This enables interoperability between the `container` tool and Docker.
 
+**Important**: This is a minimal implementation suitable for basic connectivity checking and version retrieval. For production use or high-frequency requests, consider enhancements such as:
+- Proper HTTP response parsing with chunked transfer encoding support
+- NIO-based async response handling instead of polling
+- Connection pooling and reuse
+- Comprehensive error handling for edge cases
+
 ## Basic Usage
 
 ```swift
