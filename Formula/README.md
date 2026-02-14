@@ -51,8 +51,10 @@ brew uninstall container
 Or use the included uninstall script for a complete removal:
 
 ```bash
-/usr/local/bin/uninstall-container.sh -d
+uninstall-container.sh -d
 ```
+
+The script will be available in your Homebrew bin directory (typically `/opt/homebrew/bin` on Apple Silicon or `/usr/local/bin` on Intel Macs).
 
 ## Requirements
 

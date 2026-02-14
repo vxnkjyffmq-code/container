@@ -52,10 +52,11 @@ class Container < Formula
         container system stop
 
       To uninstall container completely:
-        #{bin}/uninstall-container.sh -d
+        uninstall-container.sh -d
 
-      Note: container requires macOS 26 and an Apple Silicon Mac for full functionality.
-      The tool can be built on macOS 15 (Sequoia) or later, but is officially supported on macOS 26.
+      Note: container is officially supported on macOS 26, which includes optimizations
+      for virtualization and networking. While this formula can build on macOS 15 (Sequoia),
+      full functionality and support are only guaranteed on macOS 26.
     EOS
   end
 
