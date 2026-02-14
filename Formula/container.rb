@@ -1,6 +1,8 @@
 class Container < Formula
   desc "Create and run Linux containers as lightweight virtual machines on your Mac"
   homepage "https://github.com/apple/container"
+  # Note: This formula is currently designed for HEAD installations only.
+  # Update the url, tag, and revision when creating a stable release.
   url "https://github.com/apple/container.git",
       tag:      "v0.0.0",
       revision: "0000000000000000000000000000000000000000"

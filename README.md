@@ -21,7 +21,8 @@ You need a Mac with Apple silicon to run `container`. To build it, see the [BUIL
 You can install `container` using Homebrew by installing directly from the formula in this repository:
 
 ```bash
-brew install --HEAD Formula/container.rb
+# From the repository root directory
+brew install --HEAD ./Formula/container.rb
 ```
 
 Or if a Homebrew tap has been set up, you can install via:

@@ -9,7 +9,8 @@ This directory contains the Homebrew formula for installing the `container` tool
 If you have cloned this repository, you can install directly from the local formula:
 
 ```bash
-brew install --HEAD Formula/container.rb
+# From the repository root directory
+brew install --HEAD ./Formula/container.rb
 ```
 
 ### Install from Homebrew Tap (when available)
