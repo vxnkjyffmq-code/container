@@ -16,7 +16,36 @@ You need a Mac with Apple silicon to run `container`. To build it, see the [BUIL
 
 `container` is supported on macOS 26, since it takes advantage of new features and enhancements to virtualization and networking in this release. We do not support older versions of macOS and the `container` maintainers typically will not address issues that cannot be reproduced on the macOS 26.
 
-### Install or upgrade
+### Install with Homebrew
+
+You can install `container` using Homebrew by installing directly from the formula in this repository:
+
+```bash
+brew install --HEAD Formula/container.rb
+```
+
+Or if a Homebrew tap has been set up, you can install via:
+
+```bash
+brew tap apple/tap
+brew install --HEAD container
+```
+
+After installation, start the system service:
+
+```bash
+container system start
+```
+
+To upgrade `container` installed via Homebrew:
+
+```bash
+brew upgrade container
+container system stop
+container system start
+```
+
+### Install or upgrade (using installer package)
 
 If you're upgrading, first stop and uninstall your existing `container` (the `-k` flag keeps your user data, while `-d` removes it):
 
